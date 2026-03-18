@@ -191,7 +191,7 @@ def search():
 # 🔥 KU DAR HALKAN
 @app.route("/")
 def home():
-    return "Server is running ✅"
+    return "Aurum License Server Running ✅"
 
 
 # ================= START =================
