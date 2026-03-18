@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Aurum PRO Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-900 text-white p-6">
+
+<h1 class="text-3xl font-bold mb-6">🚀 Aurum License Manager</h1>
+
+<!-- CREATE -->
+<div class="bg-gray-800 p-4 rounded mb-6">
+  <h2 class="text-lg mb-3">Create License</h2>
+
+  <input id="username" placeholder="Username"
+    class="p-2 text-black w-full mb-2">
+
+  <select id="period" class="p-2 text-black w-full mb-2">
+    <option value="1m">1 Month</option>
+    <option value="2m">2 Month</option>
+    <option value="3m">3 Month</option>
+    <option value="1y">1 Year</option>
+    <option value="lifetime">Lifetime</option>
+    <option value="custom">Custom</option>
+  </select>
+
+  <div id="customDates" class="hidden">
+    <input id="from" type="date" class="p-2 text-black w-full mb-2">
+    <input id="to" type="date" class="p-2 text-black w-full mb-2">
+  </div>
+
+  <button onclick="createLicense()"
+    class="bg-green-500 px-4 py-2 rounded">Create</button>
+
+  <p id="result" class="mt-2 text-green-400"></p>
+</div>
+
+<!-- SEARCH -->
+<input id="search" placeholder="Search user or key"
+ class="p-2 text-black w-full mb-4" onkeyup="search()">
+
+<!-- LIST -->
+<div id="list"></div>
+
+<script>
+const API = "";
+
+// SHOW CUSTOM DATE
+document.getElementById("period").addEventListener("change", function(){
+  document.getElementById("customDates").classList.toggle("hidden", this.value !== "custom");
+});
+
+// CREATE
+async function createLicense(){
+ let body = {
+   username: document.getElementById("username").value,
+   period: document.getElementById("period").value
+ };
+
+ if(body.period === "custom"){
+   body.from = document.getElementById("from").value;
+   body.to = document.getElementById("to").value;
+ }
+
+ let res = await fetch("/create", {
+   method:"POST",
+   headers:{"Content-Type":"application/json"},
+   body:JSON.stringify(body)
+ });
+
+ let data = await res.json();
+ document.getElementById("result").innerText = "KEY: " + data.license;
+
+ load();
+}
+
+// LOAD
+async function load(){
+ let res = await fetch("/all");
+ let data = await res.json();
+
+ let html = "";
+
+ for(let k in data){
+  let v = data[k];
+
+  let statusColor =
+    v.status === "active" ? "bg-green-500" :
+    v.status === "paused" ? "bg-yellow-500" :
+    "bg-red-500";
+
+  html += `
+  <div class="bg-gray-800 p-4 mb-3 rounded">
+    <div class="flex justify-between">
+      <b>${v.username}</b>
+      <span class="${statusColor} px-2 rounded">${v.status}</span>
+    </div>
+
+    <div onclick="copy('${k}')" class="cursor-pointer mt-1">
+      🔑 ${k}
+    </div>
+
+    <div class="text-sm text-gray-400 mt-1">
+      Expiry: ${JSON.stringify(v.expiry)}
+    </div>
+
+    <div class="mt-3">
+      <button onclick="renew('${k}')"
+       class="bg-blue-500 px-2 py-1 mr-2">Renew</button>
+
+      <button onclick="pause('${k}')"
+       class="bg-yellow-500 px-2 py-1 mr-2">Pause</button>
+
+      <button onclick="del('${k}')"
+       class="bg-red-500 px-2 py-1">Delete</button>
+    </div>
+  </div>`;
+ }
+
+ document.getElementById("list").innerHTML = html;
+}
+
+// ACTIONS
+async function pause(key){
+ if(!confirm("Pause this license?")) return;
+
+ await fetch("/pause", {
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({license:key})
+ });
+
+ load();
+}
+
+async function del(key){
+ if(!confirm("Delete permanently?")) return;
+
+ await fetch("/delete", {
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({license:key})
+ });
+
+ load();
+}
+
+async function renew(key){
+ let p = prompt("Enter period (1m,2m,custom)");
+
+ if(!p) return;
+
+ await fetch("/renew", {
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({license:key,period:p})
+ });
+
+ load();
+}
+
+// SEARCH
+function search(){
+ let val = document.getElementById("search").value.toLowerCase();
+ let items = document.querySelectorAll("#list > div");
+
+ items.forEach(i=>{
+  i.style.display = i.innerText.toLowerCase().includes(val) ? "" : "none";
+ });
+}
+
+// COPY
+function copy(t){
+ navigator.clipboard.writeText(t);
+ alert("Copied!");
+}
+
+// INIT
+load();
+</script>
+
+</body>
+</html>
