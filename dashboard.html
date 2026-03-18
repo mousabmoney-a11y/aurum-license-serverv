@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aurum License Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-900 text-white">
+
+<div class="p-6">
+
+<!-- HEADER -->
+<div class="flex justify-between items-center mb-6">
+<h1 class="text-3xl font-bold text-blue-400">Aurum License Dashboard</h1>
+
+<div class="flex gap-2">
+<input id="search" placeholder="Search username..."
+class="px-3 py-2 rounded bg-gray-800 border border-gray-700">
+
+<button onclick="loadData()" class="bg-blue-500 px-4 py-2 rounded">Refresh</button>
+</div>
+</div>
+
+<!-- CREATE FORM -->
+<div class="bg-gray-800 p-4 rounded mb-6">
+<h2 class="text-lg mb-3">Create License</h2>
+
+<div class="flex gap-2">
+<input id="username" placeholder="Username" class="p-2 bg-gray-700 rounded">
+<input id="period" placeholder="Period (1m, 1y, lifetime)" class="p-2 bg-gray-700 rounded">
+
+<button onclick="createLicense()" class="bg-green-500 px-4 py-2 rounded">Create</button>
+</div>
+</div>
+
+<!-- TABLE -->
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-gray-700">
+<th class="p-2">User</th>
+<th class="p-2">License</th>
+<th class="p-2">Accounts</th>
+<th class="p-2">Expiry</th>
+<th class="p-2">Status</th>
+<th class="p-2">Actions</th>
+</tr>
+</thead>
+
+<tbody id="table"></tbody>
+</table>
+
+</div>
+
+<script>
+
+const API = "https://aurumpulsev7-license-server.onrender.com";
+
+// LOAD DATA
+async function loadData() {
+    let res = await fetch(API + "/all");
+    let data = await res.json();
+
+    let table = document.getElementById("table");
+    table.innerHTML = "";
+
+    let search = document.getElementById("search").value.toLowerCase();
+
+    for (let key in data) {
+
+        let user = data[key].username.toLowerCase();
+
+        if(search && !user.includes(search)) continue;
+
+        let row = `
+        <tr class="border-b border-gray-700 hover:bg-gray-800">
+
+        <td class="p-2">${data[key].username}</td>
+
+        <td class="p-2 cursor-pointer text-blue-400"
+        onclick="copyText('${key}')">${key}</td>
+
+        <td class="p-2">${data[key].accounts.length}</td>
+
+        <td class="p-2">${data[key].expiry}</td>
+
+        <td class="p-2">${data[key].status}</td>
+
+        <td class="p-2">
+            <button onclick="menu('${key}')" class="bg-gray-700 px-2 rounded">⋮</button>
+        </td>
+
+        </tr>
+        `;
+
+        table.innerHTML += row;
+    }
+}
+
+// COPY
+function copyText(text) {
+    navigator.clipboard.writeText(text);
+    alert("Copied!");
+}
+
+// MENU
+function menu(key) {
+
+    let action = prompt(
+`Select Action:
+
+1 = Renew
+2 = Pause
+3 = Unpause
+4 = Delete`
+);
+
+    if(action == 1) renew(key);
+    if(action == 2) pause(key);
+    if(action == 3) unpause(key);
+    if(action == 4) del(key);
+}
+
+// CREATE
+async function createLicense() {
+    let username = document.getElementById("username").value;
+    let period = document.getElementById("period").value;
+
+    let res = await fetch(API + "/create", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            username: username,
+            period: period
+        })
+    });
+
+    let data = await res.json();
+    alert("License: " + data.license);
+    loadData();
+}
+
+// RENEW
+async function renew(key) {
+
+    let period = prompt("Enter period (1m, 1y, 30 days):");
+
+    if(!confirm("Are you sure to renew?")) return;
+
+    await fetch(API + "/renew", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            license: key,
+            period: period
+        })
+    });
+
+    loadData();
+}
+
+// PAUSE
+async function pause(key) {
+
+    if(!confirm("Are you sure to PAUSE this license?")) return;
+
+    await fetch(API + "/pause", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({license: key})
+    });
+
+    loadData();
+}
+
+// UNPAUSE
+async function unpause(key) {
+
+    await fetch(API + "/unpause", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({license: key})
+    });
+
+    loadData();
+}
+
+// DELETE
+async function del(key) {
+
+    if(!confirm("DELETE permanently?")) return;
+
+    await fetch(API + "/delete", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({license: key})
+    });
+
+    loadData();
+}
+
+// INIT
+loadData();
+
+</script>
+
+</body>
+</html>
