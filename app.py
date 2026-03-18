@@ -172,6 +172,32 @@ def renew():
 
     return jsonify({"msg": "not found"})
 
+# ================= SEARCH =================
+
+@app.route("/search", methods=["POST"])
+def search():
+    db = load(DB_FILE)
+    username = request.json.get("username")
+
+    results = {}
+
+    for k, v in db.items():
+        if v["username"].lower() == username.lower():
+            results[k] = v
+
+    return jsonify(results)
+
+
+# 🔥 KU DAR HALKAN
+@app.route("/")
+def home():
+    return "Server is running ✅"
+
+
+# ================= START =================
+
+app.run(host="0.0.0.0", port=10000)
+
 # ================= DELETE =================
 
 @app.route("/delete", methods=["POST"])
