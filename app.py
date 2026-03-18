@@ -39,54 +39,18 @@ def login():
     p = request.json.get("password")
 
     if u == ADMIN_USER and p == ADMIN_PASS:
-        return jsonify({"status":"ok"})
-    return jsonify({"status":"fail"})
+        return jsonify({"status": "ok"})
+    return jsonify({"status": "fail"})
 
-# ================= CREATE =================
+# ================= HOME (FIX 405 ERROR) =================
 
-@app.route("/create", methods=["POST"])
-def create():
-    db = load(DB_FILE)
+@app.route("/")
+def home():
+    return send_from_directory(".", "index.html")
 
-    username = request.json.get("username")
-    period = request.json.get("period")
+# ================= VERIFY (EA ONLY) =================
 
-    expiry = None
-
-    if period == "1m":
-        expiry = now() + timedelta(days=30)
-    elif period == "2m":
-        expiry = now() + timedelta(days=60)
-    elif period == "3m":
-        expiry = now() + timedelta(days=90)
-    elif period == "1y":
-        expiry = now() + timedelta(days=365)
-    elif period == "2y":
-        expiry = now() + timedelta(days=730)
-    elif period == "lifetime":
-        expiry = None
-    elif period == "custom":
-        start = parse_date(request.json.get("from"))
-        end = parse_date(request.json.get("to"))
-        expiry = end
-
-    key = gen_key()
-
-    db[key] = {
-        "username": username,
-        "accounts": [],
-        "hwid": "",
-        "status": "active",
-        "expiry": expiry.strftime("%Y-%m-%d") if expiry else "lifetime"
-    }
-
-    save(DB_FILE, db)
-
-    return jsonify({"license": key})
-
-# ================= VERIFY =================
-
-@app.route("/", methods=["POST"])
+@app.route("/verify", methods=["POST"])
 def verify():
     db = load(DB_FILE)
 
@@ -117,7 +81,7 @@ def verify():
     elif lic["hwid"] != hwid:
         return "device_mismatch"
 
-    # ACCOUNT LIMIT
+    # ACCOUNT LIMIT (MAX 5)
     if account not in lic["accounts"]:
         if len(lic["accounts"]) >= 5:
             return "account_limit"
@@ -126,14 +90,55 @@ def verify():
     save(DB_FILE, db)
 
     return jsonify({
-        "status":"valid",
+        "status": "valid",
         "expiry": lic["expiry"]
     })
+
+# ================= CREATE =================
+
+@app.route("/create", methods=["POST"])
+def create():
+    db = load(DB_FILE)
+
+    username = request.json.get("username")
+    period = request.json.get("period")
+
+    expiry = None
+
+    if period == "1m":
+        expiry = now() + timedelta(days=30)
+    elif period == "2m":
+        expiry = now() + timedelta(days=60)
+    elif period == "3m":
+        expiry = now() + timedelta(days=90)
+    elif period == "1y":
+        expiry = now() + timedelta(days=365)
+    elif period == "2y":
+        expiry = now() + timedelta(days=730)
+    elif period == "lifetime":
+        expiry = None
+    elif period == "custom":
+        end = parse_date(request.json.get("to"))
+        expiry = end
+
+    key = gen_key()
+
+    db[key] = {
+        "username": username,
+        "accounts": [],
+        "hwid": "",
+        "status": "active",
+        "expiry": expiry.strftime("%Y-%m-%d") if expiry else "lifetime"
+    }
+
+    save(DB_FILE, db)
+
+    return jsonify({"license": key})
 
 # ================= ALL =================
 
 @app.route("/all")
-def all():
+def get_all():
     return jsonify(load(DB_FILE))
 
 # ================= SEARCH =================
@@ -162,7 +167,7 @@ def pause():
         db[key]["status"] = "paused"
 
     save(DB_FILE, db)
-    return jsonify({"status":"ok"})
+    return jsonify({"status": "paused"})
 
 # ================= DELETE =================
 
@@ -180,7 +185,7 @@ def delete():
     save(DB_FILE, db)
     save(DELETED_FILE, deleted)
 
-    return jsonify({"status":"deleted"})
+    return jsonify({"status": "deleted"})
 
 # ================= RENEW =================
 
@@ -192,12 +197,12 @@ def renew():
     period = request.json.get("period")
 
     if key not in db:
-        return jsonify({"status":"error"})
+        return jsonify({"status": "error"})
 
     lic = db[key]
 
     if lic["expiry"] == "lifetime":
-        return jsonify({"status":"lifetime"})
+        return jsonify({"status": "lifetime"})
 
     base = parse_date(lic["expiry"])
 
@@ -217,15 +222,9 @@ def renew():
 
     save(DB_FILE, db)
 
-    return jsonify({"status":"renewed"})
+    return jsonify({"status": "renewed"})
 
-# ================= DASHBOARD =================
-
-@app.route("/dashboard")
-def dashboard():
-    return send_from_directory(".", "index.html")
-
-# ================= HOME =================
+# ================= STATUS =================
 
 @app.route("/status")
 def status():
