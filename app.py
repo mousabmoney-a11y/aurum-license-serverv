@@ -4,127 +4,105 @@ from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
+# ================= FILES =================
 DB_FILE = "licenses.json"
+ADMINS_FILE = "admins.json"
+LOG_FILE = "logs.json"
 DELETED_FILE = "deleted.json"
 
 # ================= UTILS =================
 
-def load(file):
-    if not os.path.exists(file):
+def load(f):
+    if not os.path.exists(f):
         return {}
-    with open(file, "r") as f:
-        return json.load(f)
+    with open(f, "r") as file:
+        return json.load(file)
 
-def save(file, data):
-    with open(file, "w") as f:
-        json.dump(data, f, indent=4)
-
-def gen_key():
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=16))
+def save(f, data):
+    with open(f, "w") as file:
+        json.dump(data, file, indent=4)
 
 def now():
     return datetime.utcnow()
 
-def parse_date(d):
-    return datetime.strptime(d, "%Y-%m-%d")
+def gen_key():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=16))
 
-# ================= LOGIN =================
+def log(action, user):
+    logs = load(LOG_FILE)
+    t = str(now())
+    logs[t] = {"action": action, "by": user}
+    save(LOG_FILE, logs)
 
-ADMIN_USER = "admin"
-ADMIN_PASS = "1234"
-
-@app.route("/login", methods=["POST"])
-def login():
-    u = request.json.get("username")
-    p = request.json.get("password")
-
-    if u == ADMIN_USER and p == ADMIN_PASS:
-        return jsonify({"status": "ok"})
-    return jsonify({"status": "fail"})
-
-# ================= HOME (FIX 405 ERROR) =================
+# ================= ROOT =================
 
 @app.route("/")
 def home():
+    return send_from_directory(".", "login.html")
+
+@app.route("/dashboard")
+def dashboard():
     return send_from_directory(".", "index.html")
 
-# ================= VERIFY (EA ONLY) =================
+# ================= LOGIN =================
 
-@app.route("/verify", methods=["POST"])
-def verify():
-    db = load(DB_FILE)
+@app.route("/login", methods=["POST"])
+def login():
+    admins = load(ADMINS_FILE)
+    data = request.json
+
+    email = data.get("email")
+    password = data.get("password")
+
+    if email in admins and admins[email]["password"] == password:
+        return jsonify({"status": "ok"})
+    
+    return jsonify({"status": "fail"})
+
+# ================= CREATE ADMIN =================
+
+@app.route("/add_admin", methods=["POST"])
+def add_admin():
+    admins = load(ADMINS_FILE)
 
     data = request.json
-    key = data.get("license")
-    account = str(data.get("account"))
-    hwid = data.get("hwid")
+    email = data["email"]
 
-    if key not in db:
-        return "invalid"
+    admins[email] = {
+        "name": data["name"],
+        "password": data["password"],
+        "permissions": data.get("permissions", {}),
+        "expiry": data.get("expiry")
+    }
 
-    lic = db[key]
+    save(ADMINS_FILE, admins)
+    return jsonify({"status": "admin_added"})
 
-    # STATUS
-    if lic["status"] == "paused":
-        return "paused"
+# ================= ALL ADMINS =================
 
-    # EXPIRY
-    if lic["expiry"] != "lifetime":
-        if now() > parse_date(lic["expiry"]):
-            lic["status"] = "expired"
-            save(DB_FILE, db)
-            return "expired"
+@app.route("/admins")
+def get_admins():
+    return jsonify(load(ADMINS_FILE))
 
-    # HWID LOCK
-    if lic["hwid"] == "":
-        lic["hwid"] = hwid
-    elif lic["hwid"] != hwid:
-        return "device_mismatch"
-
-    # ACCOUNT LIMIT (MAX 5)
-    if account not in lic["accounts"]:
-        if len(lic["accounts"]) >= 5:
-            return "account_limit"
-        lic["accounts"].append(account)
-
-    save(DB_FILE, db)
-
-    return jsonify({
-        "status": "valid",
-        "expiry": lic["expiry"]
-    })
-
-# ================= CREATE =================
+# ================= CREATE LICENSE =================
 
 @app.route("/create", methods=["POST"])
 def create():
     db = load(DB_FILE)
 
-    username = request.json.get("username")
-    period = request.json.get("period")
-
-    expiry = None
-
-    if period == "1m":
-        expiry = now() + timedelta(days=30)
-    elif period == "2m":
-        expiry = now() + timedelta(days=60)
-    elif period == "3m":
-        expiry = now() + timedelta(days=90)
-    elif period == "1y":
-        expiry = now() + timedelta(days=365)
-    elif period == "2y":
-        expiry = now() + timedelta(days=730)
-    elif period == "lifetime":
-        expiry = None
-    elif period == "custom":
-        end = parse_date(request.json.get("to"))
-        expiry = end
+    data = request.json
 
     key = gen_key()
 
+    expiry = None
+
+    if data["period"] == "1m":
+        expiry = now() + timedelta(days=30)
+    elif data["period"] == "custom":
+        expiry = datetime.strptime(data["to"], "%Y-%m-%d")
+
     db[key] = {
-        "username": username,
+        "username": data["username"],
         "accounts": [],
         "hwid": "",
         "status": "active",
@@ -132,42 +110,69 @@ def create():
     }
 
     save(DB_FILE, db)
+    log("CREATE_LICENSE", data["username"])
 
     return jsonify({"license": key})
 
-# ================= ALL =================
+# ================= VERIFY (EA) =================
+
+@app.route("/verify", methods=["POST"])
+def verify():
+    db = load(DB_FILE)
+
+    data = request.json
+
+    key = data["license"]
+    acc = str(data["account"])
+    hwid = data["hwid"]
+
+    if key not in db:
+        return "invalid"
+
+    lic = db[key]
+
+    if lic["status"] == "paused":
+        return "paused"
+
+    if lic["expiry"] != "lifetime":
+        if now() > datetime.strptime(lic["expiry"], "%Y-%m-%d"):
+            return "expired"
+
+    # HWID
+    if lic["hwid"] == "":
+        lic["hwid"] = hwid
+    elif lic["hwid"] != hwid:
+        return "device_mismatch"
+
+    # accounts max 5
+    if acc not in lic["accounts"]:
+        if len(lic["accounts"]) >= 5:
+            lic["status"] = "blocked"
+            return "blocked"
+        lic["accounts"].append(acc)
+
+    save(DB_FILE, db)
+
+    return jsonify({"status": "valid"})
+
+# ================= GET ALL =================
 
 @app.route("/all")
-def get_all():
+def all():
     return jsonify(load(DB_FILE))
-
-# ================= SEARCH =================
-
-@app.route("/search", methods=["POST"])
-def search():
-    db = load(DB_FILE)
-    username = request.json.get("username")
-
-    results = {}
-
-    for k, v in db.items():
-        if v["username"].lower() == username.lower():
-            results[k] = v
-
-    return jsonify(results)
 
 # ================= PAUSE =================
 
 @app.route("/pause", methods=["POST"])
 def pause():
     db = load(DB_FILE)
-    key = request.json.get("license")
+    k = request.json["license"]
 
-    if key in db:
-        db[key]["status"] = "paused"
+    if k in db:
+        db[k]["status"] = "paused"
 
     save(DB_FILE, db)
-    return jsonify({"status": "paused"})
+    return jsonify({"ok": True})
 
 # ================= DELETE =================
 
@@ -176,16 +181,16 @@ def delete():
     db = load(DB_FILE)
     deleted = load(DELETED_FILE)
 
-    key = request.json.get("license")
+    k = request.json["license"]
 
-    if key in db:
-        deleted[key] = db[key]
-        del db[key]
+    if k in db:
+        deleted[k] = db[k]
+        del db[k]
 
     save(DB_FILE, db)
     save(DELETED_FILE, deleted)
 
-    return jsonify({"status": "deleted"})
+    return jsonify({"deleted": True})
 
 # ================= RENEW =================
 
@@ -193,42 +198,21 @@ def delete():
 def renew():
     db = load(DB_FILE)
 
-    key = request.json.get("license")
-    period = request.json.get("period")
+    k = request.json["license"]
 
-    if key not in db:
-        return jsonify({"status": "error"})
+    if k not in db:
+        return jsonify({"error": True})
 
-    lic = db[key]
+    lic = db[k]
 
-    if lic["expiry"] == "lifetime":
-        return jsonify({"status": "lifetime"})
+    new_date = datetime.strptime(lic["expiry"], "%Y-%m-%d") + timedelta(days=30)
 
-    base = parse_date(lic["expiry"])
-
-    if period == "1m":
-        base += timedelta(days=30)
-    elif period == "2m":
-        base += timedelta(days=60)
-    elif period == "3m":
-        base += timedelta(days=90)
-    elif period == "1y":
-        base += timedelta(days=365)
-    elif period == "custom":
-        base = parse_date(request.json.get("to"))
-
-    lic["expiry"] = base.strftime("%Y-%m-%d")
+    lic["expiry"] = new_date.strftime("%Y-%m-%d")
     lic["status"] = "active"
 
     save(DB_FILE, db)
 
-    return jsonify({"status": "renewed"})
-
-# ================= STATUS =================
-
-@app.route("/status")
-def status():
-    return "Aurum License Server Running ✅"
+    return jsonify({"renewed": True})
 
 # ================= START =================
 
