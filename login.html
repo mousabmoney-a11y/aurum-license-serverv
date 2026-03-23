@@ -1,1 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Aurum Login</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
 
+<body class="bg-gray-900 flex items-center justify-center h-screen">
+
+<div class="bg-gray-800 p-6 rounded w-80 text-center">
+  <h2 class="text-white text-xl mb-4">🔐 Aurum Admin Login</h2>
+
+  <input id="email" placeholder="Email"
+    class="w-full p-2 mb-3 text-black">
+
+  <input id="password" type="password" placeholder="Password"
+    class="w-full p-2 mb-3 text-black">
+
+  <button onclick="login()"
+    class="bg-blue-500 w-full p-2 text-white rounded">
+    Login
+  </button>
+
+  <p id="msg" class="text-red-400 mt-2"></p>
+</div>
+
+<script>
+async function login(){
+  let res = await fetch("/login", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      email:document.getElementById("email").value,
+      password:document.getElementById("password").value
+    })
+  });
+
+  let data = await res.json();
+
+  if(data.status === "ok"){
+    window.location.href = "/dashboard";
+  } else {
+    document.getElementById("msg").innerText = "❌ Login Failed";
+  }
+}
+</script>
+
+</body>
+</html>
