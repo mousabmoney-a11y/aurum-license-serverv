@@ -2,81 +2,83 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Aurum PRO Dashboard</title>
+<title>Aurum Dashboard</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 
 <body class="bg-gray-900 text-white p-6">
 
-<h1 class="text-3xl font-bold mb-6">🚀 Aurum License Manager</h1>
+<h1 class="text-3xl mb-4">🚀 Aurum Dashboard</h1>
 
-<!-- CREATE -->
-<div class="bg-gray-800 p-4 rounded mb-6">
-  <h2 class="text-lg mb-3">Create License</h2>
+<!-- ADMIN BUTTON -->
+<button onclick="openAdminModal()"
+ class="bg-blue-500 px-3 py-1 rounded mb-4">
+ + Add Admin
+</button>
 
-  <input id="username" placeholder="Username"
-    class="p-2 text-black w-full mb-2">
-
-  <select id="period" class="p-2 text-black w-full mb-2">
-    <option value="1m">1 Month</option>
-    <option value="2m">2 Month</option>
-    <option value="3m">3 Month</option>
-    <option value="1y">1 Year</option>
-    <option value="lifetime">Lifetime</option>
-    <option value="custom">Custom</option>
-  </select>
-
-  <div id="customDates" class="hidden">
-    <input id="from" type="date" class="p-2 text-black w-full mb-2">
-    <input id="to" type="date" class="p-2 text-black w-full mb-2">
-  </div>
-
-  <button onclick="createLicense()"
-    class="bg-green-500 px-4 py-2 rounded">Create</button>
-
-  <p id="result" class="mt-2 text-green-400"></p>
+<!-- ANALYTICS -->
+<div class="bg-gray-800 p-4 mb-4 rounded">
+  📊 Total: <span id="total"></span> |
+  Active: <span id="active"></span> |
+  Paused: <span id="paused"></span>
 </div>
 
-<!-- SEARCH -->
-<input id="search" placeholder="Search user or key"
- class="p-2 text-black w-full mb-4" onkeyup="search()">
+<!-- CREATE LICENSE -->
+<div class="bg-gray-800 p-4 rounded mb-4">
+<input id="username" placeholder="Username"
+ class="p-2 text-black w-full mb-2">
+
+<select id="period" class="p-2 text-black w-full mb-2">
+<option value="1m">1 Month</option>
+<option value="2m">2 Month</option>
+<option value="custom">Custom</option>
+</select>
+
+<input id="to" type="date" class="p-2 text-black w-full mb-2">
+
+<button onclick="createLicense()"
+ class="bg-green-500 px-3 py-1">Create</button>
+</div>
 
 <!-- LIST -->
 <div id="list"></div>
 
+<!-- ADMIN MODAL -->
+<div id="adminModal" class="hidden fixed top-0 left-0 w-full h-full bg-black bg-opacity-50">
+<div class="bg-gray-800 p-5 m-20 rounded">
+
+<h2>Add Admin</h2>
+
+<input id="adminName" placeholder="Name" class="p-2 text-black w-full mb-2">
+<input id="adminEmail" placeholder="Email" class="p-2 text-black w-full mb-2">
+<input id="adminPass" placeholder="Password" class="p-2 text-black w-full mb-2">
+
+<input id="adminExpiry" type="date" class="p-2 text-black w-full mb-2">
+
+<button onclick="createAdmin()" class="bg-green-500 px-3 py-1">Create</button>
+<button onclick="closeAdminModal()" class="bg-red-500 px-3 py-1">Cancel</button>
+
+</div>
+</div>
+
 <script>
-const API = "";
 
-// SHOW CUSTOM DATE
-document.getElementById("period").addEventListener("change", function(){
-  document.getElementById("customDates").classList.toggle("hidden", this.value !== "custom");
-});
-
-// CREATE
+// ================= CREATE LICENSE =================
 async function createLicense(){
- let body = {
-   username: document.getElementById("username").value,
-   period: document.getElementById("period").value
- };
-
- if(body.period === "custom"){
-   body.from = document.getElementById("from").value;
-   body.to = document.getElementById("to").value;
- }
-
  let res = await fetch("/create", {
-   method:"POST",
-   headers:{"Content-Type":"application/json"},
-   body:JSON.stringify(body)
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({
+    username:document.getElementById("username").value,
+    period:document.getElementById("period").value,
+    to:document.getElementById("to").value
+  })
  });
-
- let data = await res.json();
- document.getElementById("result").innerText = "KEY: " + data.license;
 
  load();
 }
 
-// LOAD
+// ================= LOAD =================
 async function load(){
  let res = await fetch("/all");
  let data = await res.json();
@@ -86,99 +88,82 @@ async function load(){
  for(let k in data){
   let v = data[k];
 
-  let statusColor =
-    v.status === "active" ? "bg-green-500" :
-    v.status === "paused" ? "bg-yellow-500" :
-    "bg-red-500";
-
   html += `
-  <div class="bg-gray-800 p-4 mb-3 rounded">
-    <div class="flex justify-between">
-      <b>${v.username}</b>
-      <span class="${statusColor} px-2 rounded">${v.status}</span>
-    </div>
+  <div class="bg-gray-800 p-4 mb-2 rounded">
+    <b>${v.username}</b><br>
+    🔑 ${k}<br>
+    💻 HWID: ${v.hwid || "Not set"}<br>
+    📊 Accounts: ${v.accounts.join(", ")}<br>
+    📅 Expiry: ${v.expiry}<br>
 
-    <div onclick="copy('${k}')" class="cursor-pointer mt-1">
-      🔑 ${k}
-    </div>
-
-    <div class="text-sm text-gray-400 mt-1">
-      Expiry: ${JSON.stringify(v.expiry)}
-    </div>
-
-    <div class="mt-3">
-      <button onclick="renew('${k}')"
-       class="bg-blue-500 px-2 py-1 mr-2">Renew</button>
-
-      <button onclick="pause('${k}')"
-       class="bg-yellow-500 px-2 py-1 mr-2">Pause</button>
-
-      <button onclick="del('${k}')"
-       class="bg-red-500 px-2 py-1">Delete</button>
-    </div>
-  </div>`;
+    <button onclick="pause('${k}')" class="bg-yellow-500 px-2">Pause</button>
+    <button onclick="del('${k}')" class="bg-red-500 px-2">Delete</button>
+  </div>
+  `;
  }
 
  document.getElementById("list").innerHTML = html;
 }
 
-// ACTIONS
-async function pause(key){
- if(!confirm("Pause this license?")) return;
+// ================= ANALYTICS =================
+async function loadAnalytics(){
+ let res = await fetch("/analytics");
+ let d = await res.json();
 
+ document.getElementById("total").innerText = d.total;
+ document.getElementById("active").innerText = d.active;
+ document.getElementById("paused").innerText = d.paused;
+}
+
+// ================= PAUSE =================
+async function pause(k){
  await fetch("/pause", {
   method:"POST",
   headers:{"Content-Type":"application/json"},
-  body:JSON.stringify({license:key})
+  body:JSON.stringify({license:k})
  });
-
  load();
 }
 
-async function del(key){
- if(!confirm("Delete permanently?")) return;
-
+// ================= DELETE =================
+async function del(k){
  await fetch("/delete", {
   method:"POST",
   headers:{"Content-Type":"application/json"},
-  body:JSON.stringify({license:key})
+  body:JSON.stringify({license:k})
  });
-
  load();
 }
 
-async function renew(key){
- let p = prompt("Enter period (1m,2m,custom)");
+// ================= ADMIN =================
+function openAdminModal(){
+ document.getElementById("adminModal").classList.remove("hidden");
+}
 
- if(!p) return;
+function closeAdminModal(){
+ document.getElementById("adminModal").classList.add("hidden");
+}
 
- await fetch("/renew", {
+async function createAdmin(){
+ await fetch("/add_admin", {
   method:"POST",
   headers:{"Content-Type":"application/json"},
-  body:JSON.stringify({license:key,period:p})
+  body:JSON.stringify({
+    name:document.getElementById("adminName").value,
+    email:document.getElementById("adminEmail").value,
+    password:document.getElementById("adminPass").value,
+    expiry:document.getElementById("adminExpiry").value
+  })
  });
 
- load();
-}
-
-// SEARCH
-function search(){
- let val = document.getElementById("search").value.toLowerCase();
- let items = document.querySelectorAll("#list > div");
-
- items.forEach(i=>{
-  i.style.display = i.innerText.toLowerCase().includes(val) ? "" : "none";
- });
-}
-
-// COPY
-function copy(t){
- navigator.clipboard.writeText(t);
- alert("Copied!");
+ alert("Admin Added");
+ closeAdminModal();
 }
 
 // INIT
 load();
+loadAnalytics();
+
 </script>
 
 </body>
