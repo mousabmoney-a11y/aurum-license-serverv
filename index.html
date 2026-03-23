@@ -28,6 +28,12 @@
 <input id="username" placeholder="Username"
  class="p-2 text-black w-full mb-2">
 
+<input id="account" placeholder="Account Number"
+ class="p-2 text-black w-full mb-2">
+
+<input id="hwid" placeholder="HWID / Device ID"
+ class="p-2 text-black w-full mb-2">
+
 <select id="period" class="p-2 text-black w-full mb-2">
 <option value="1m">1 Month</option>
 <option value="2m">2 Month</option>
@@ -65,16 +71,17 @@
 
 // ================= CREATE LICENSE =================
 async function createLicense(){
- let res = await fetch("/create", {
+ await fetch("/create", {
   method:"POST",
   headers:{"Content-Type":"application/json"},
   body:JSON.stringify({
     username:document.getElementById("username").value,
+    account:document.getElementById("account").value,
+    hwid:document.getElementById("hwid").value,
     period:document.getElementById("period").value,
     to:document.getElementById("to").value
   })
  });
-
  load();
 }
 
