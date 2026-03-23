@@ -149,8 +149,8 @@ def create():
 
     db[key] = {
         "username": data["username"],
-        "accounts": [],
-        "hwid": "",
+        "accounts": [data["account"]] if data.get("account") else [],
+        "hwid": data.get("hwid", ""),
         "status": "active",
         "expiry": expiry.strftime("%Y-%m-%d") if expiry else "lifetime",
         "created_by": data.get("admin", "main")
