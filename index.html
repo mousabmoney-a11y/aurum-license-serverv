@@ -100,8 +100,8 @@ async function load(){
     <b>${v.username}</b><br>
     🔑 ${k}<br>
     💻 HWID: ${v.hwid || "Not set"}<br>
-    📊 Accounts: ${v.accounts.join(", ")}<br>
-    📅 Expiry: ${v.expiry}<br>
+    📊 Accounts: ${v.accounts && v.accounts.length ? v.accounts.join(", ") : "None"}<br>
+    📅 Expiry: ${v.expiry}
 
     <button onclick="pause('${k}')" class="bg-yellow-500 px-2">Pause</button>
     <button onclick="del('${k}')" class="bg-red-500 px-2">Delete</button>
