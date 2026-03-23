@@ -1,26 +1,26 @@
-from flask import Flask, request, jsonify, send_from_directory
-import json, os, random, string, smtplib
+from flask import Flask, request, jsonify, session, redirect
+import json, random, string
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
+app.secret_key = "aurum-secret"
 
-# ================= FILES =================
-DB_FILE = "licenses.json"
+DB_FILE = "db.json"
 ADMINS_FILE = "admins.json"
-LOG_FILE = "logs.json"
-DELETED_FILE = "deleted.json"
+LOGS_FILE = "logs.json"
 
-# ================= UTILS =================
+# ================= HELPERS =================
 
-def load(f):
-    if not os.path.exists(f):
+def load(file):
+    try:
+        with open(file) as f:
+            return json.load(f)
+    except:
         return {}
-    with open(f, "r") as file:
-        return json.load(file)
 
-def save(f, data):
-    with open(f, "w") as file:
-        json.dump(data, file, indent=4)
+def save(data, file):
+    with open(file, "w") as f:
+        json.dump(data, f, indent=4)
 
 def now():
     return datetime.utcnow()
@@ -28,270 +28,195 @@ def now():
 def gen_key():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=16))
 
-def log(action, user):
-    logs = load(LOG_FILE)
-    logs[str(now())] = {"action": action, "by": user}
-    save(LOG_FILE, logs)
-
-# ================= EMAIL =================
-
-def send_email(to_email, subject, body):
-    sender = "yourgmail@gmail.com"
-    password = "APP_PASSWORD"
-
-    msg = f"Subject: {subject}\n\n{body}"
-
-    server = smtplib.SMTP("smtp.gmail.com", 587)
-    server.starttls()
-    server.login(sender, password)
-    server.sendmail(sender, to_email, msg)
-    server.quit()
-
-# ================= ROOT =================
-
-@app.route("/")
-def home():
-    return send_from_directory(".", "login.html")
-
-@app.route("/dashboard")
-def dashboard():
-    return send_from_directory(".", "index.html")
+def log_action(action, key="", admin="system"):
+    logs = load(LOGS_FILE)
+    logs[str(datetime.utcnow())] = {
+        "action": action,
+        "key": key,
+        "admin": admin
+    }
+    save(logs, LOGS_FILE)
 
 # ================= LOGIN =================
 
 @app.route("/login", methods=["POST"])
 def login():
-    admins = load(ADMINS_FILE)
     data = request.json
-
-    email = data.get("email")
-    password = data.get("password")
-
-    if email in admins and admins[email]["password"] == password:
-        return jsonify({"status": "ok"})
-    
-    return jsonify({"status": "fail"})
-
-# ================= ADD ADMIN =================
-
-@app.route("/add_admin", methods=["POST"])
-def add_admin():
     admins = load(ADMINS_FILE)
-
-    data = request.json
 
     email = data["email"]
+    password = data["password"]
 
-    admins[email] = {
-        "name": data["name"],
-        "password": data["password"],
-        "permissions": data["permissions"],
-        "expiry": data["expiry"],
-        "created_at": str(now())
-    }
+    if email in admins and admins[email]["password"] == password:
+        session["admin"] = email
+        return {"status":"ok"}
 
-    save(ADMINS_FILE, admins)
+    return {"status":"fail"}
 
-    send_email(
-        email,
-        "Aurum Pulse Admin Access",
-        f"You are invited as admin\nLogin: {email}"
-    )
+@app.route("/dashboard")
+def dashboard():
+    if "admin" not in session:
+        return redirect("/")
+    return open("index.html").read()
 
-    log("ADD_ADMIN", email)
-
-    return jsonify({"status": "admin_added"})
-
-# ================= ADMIN EXPIRY =================
-
-def check_admin_expiry():
-    admins = load(ADMINS_FILE)
-    now_time = now()
-
-    expired = []
-
-    for email, data in admins.items():
-        if data.get("expiry"):
-            exp = datetime.strptime(data["expiry"], "%Y-%m-%d")
-            if now_time > exp:
-                expired.append(email)
-
-    for e in expired:
-        del admins[e]
-
-    save(ADMINS_FILE, admins)
-
-# ================= GET ADMINS =================
-
-@app.route("/admins")
-def get_admins():
-    check_admin_expiry()
-    return jsonify(load(ADMINS_FILE))
+@app.route("/")
+def home():
+    return open("login.html").read()
 
 # ================= CREATE LICENSE =================
 
 @app.route("/create", methods=["POST"])
 def create():
     db = load(DB_FILE)
-
     data = request.json
 
     key = gen_key()
 
-    expiry = None
-
+    # expiry
     if data["period"] == "1m":
         expiry = now() + timedelta(days=30)
     elif data["period"] == "2m":
         expiry = now() + timedelta(days=60)
-    elif data["period"] == "custom":
-        expiry = datetime.strptime(data["to"], "%Y-%m-%d")
+    else:
+        expiry = datetime.fromisoformat(data["to"])
 
     db[key] = {
         "username": data["username"],
         "accounts": [data["account"]] if data.get("account") else [],
         "hwid": data.get("hwid", ""),
+        "expiry": str(expiry),
         "status": "active",
-        "expiry": expiry.strftime("%Y-%m-%d") if expiry else "lifetime",
-        "created_by": data.get("admin", "main")
+        "accounts_used": [],
+        "created": str(now())
     }
 
-    save(DB_FILE, db)
-    log("CREATE_LICENSE", data["username"])
+    save(db, DB_FILE)
+    log_action("CREATE", key, session.get("admin","main"))
 
-    return jsonify({"license": key})
+    return {"key": key}
 
-# ================= VERIFY (EA) =================
+# ================= VERIFY =================
 
 @app.route("/verify", methods=["POST"])
 def verify():
     db = load(DB_FILE)
-
     data = request.json
 
-    key = data["license"]
-    acc = str(data["account"])
-    hwid = data["hwid"]
+    key = data.get("license")
+    account = data.get("account")
+    hwid = data.get("hwid")
 
     if key not in db:
-        return "invalid"
+        return {"status":"invalid"}
 
     lic = db[key]
 
+    # 🔴 PAUSED
     if lic["status"] == "paused":
-        return "paused"
+        return {"status":"paused"}
 
-    if lic["expiry"] != "lifetime":
-        if now() > datetime.strptime(lic["expiry"], "%Y-%m-%d"):
-            return "expired"
+    # 🔴 EXPIRED
+    if datetime.fromisoformat(lic["expiry"]) < now():
+        return {"status":"expired"}
 
-    # HWID LOCK
+    # 🔒 DEVICE LOCK
     if lic["hwid"] == "":
         lic["hwid"] = hwid
     elif lic["hwid"] != hwid:
-        return "device_mismatch"
+        return {"status":"device_changed"}
 
-    # ACCOUNT LIMIT
-    if acc not in lic["accounts"]:
-        if len(lic["accounts"]) >= 5:
-            lic["status"] = "blocked"
-            return "blocked"
-        lic["accounts"].append(acc)
+    # 📊 ACCOUNT LIMIT = 5
+    if account not in lic["accounts_used"]:
+        if len(lic["accounts_used"]) >= 5:
+            return {"status":"account_limit"}
+        lic["accounts_used"].append(account)
 
-    save(DB_FILE, db)
+    # SAVE ACCOUNT LIST
+    if account not in lic["accounts"]:
+        lic["accounts"].append(account)
 
-    return jsonify({"status": "valid"})
+    # 🔥 LIVE TRACKING
+    lic["last_seen"] = str(now())
 
-# ================= ANALYTICS =================
+    db[key] = lic
+    save(db, DB_FILE)
+
+    log_action("VERIFY", key)
+
+    return {"status":"valid"}
+
+# ================= CONTROL =================
+
+@app.route("/pause", methods=["POST"])
+def pause():
+    db = load(DB_FILE)
+    key = request.json["license"]
+
+    db[key]["status"] = "paused"
+    save(db, DB_FILE)
+
+    log_action("PAUSE", key, session.get("admin","main"))
+    return {"ok":True}
+
+@app.route("/delete", methods=["POST"])
+def delete():
+    db = load(DB_FILE)
+    key = request.json["license"]
+
+    if key in db:
+        del db[key]
+
+    save(db, DB_FILE)
+    log_action("DELETE", key, session.get("admin","main"))
+
+    return {"ok":True}
+
+# ================= DATA =================
+
+@app.route("/all")
+def all_data():
+    return jsonify(load(DB_FILE))
+
+@app.route("/logs")
+def logs():
+    return jsonify(load(LOGS_FILE))
 
 @app.route("/analytics")
 def analytics():
     db = load(DB_FILE)
 
     total = len(db)
-    active = sum(1 for v in db.values() if v["status"] == "active")
-    paused = sum(1 for v in db.values() if v["status"] == "paused")
+    active = len([k for k in db if db[k]["status"]=="active"])
+    paused = len([k for k in db if db[k]["status"]=="paused"])
 
-    return jsonify({
+    return {
         "total": total,
         "active": active,
         "paused": paused
-    })
+    }
 
-# ================= ADMIN PRIVATE =================
+# ================= ADMIN =================
 
-@app.route("/admin/<email>")
-def admin_view(email):
-    db = load(DB_FILE)
+@app.route("/add_admin", methods=["POST"])
+def add_admin():
+    admins = load(ADMINS_FILE)
+    data = request.json
 
-    result = {}
+    admins[data["email"]] = {
+        "name": data["name"],
+        "password": data["password"],
+        "expiry": data["expiry"]
+    }
 
-    for k, v in db.items():
-        if v.get("created_by") == email:
-            result[k] = v
+    save(admins, ADMINS_FILE)
+    log_action("ADD_ADMIN", data["email"])
 
-    return jsonify(result)
+    return {"ok":True}
 
-# ================= DELETE =================
-
-@app.route("/delete", methods=["POST"])
-def delete():
-    db = load(DB_FILE)
-    deleted = load(DELETED_FILE)
-
-    k = request.json["license"]
-
-    if k in db:
-        deleted[k] = db[k]
-        del db[k]
-
-    save(DB_FILE, db)
-    save(DELETED_FILE, deleted)
-
-    return jsonify({"deleted": True})
-
-# ================= PAUSE =================
-
-@app.route("/pause", methods=["POST"])
-def pause():
-    db = load(DB_FILE)
-    k = request.json["license"]
-
-    if k in db:
-        db[k]["status"] = "paused"
-
-    save(DB_FILE, db)
-    return jsonify({"paused": True})
-
-# ================= RENEW =================
-
-@app.route("/renew", methods=["POST"])
-def renew():
-    db = load(DB_FILE)
-
-    k = request.json["license"]
-
-    if k not in db:
-        return jsonify({"error": True})
-
-    lic = db[k]
-
-    new_date = datetime.strptime(lic["expiry"], "%Y-%m-%d") + timedelta(days=30)
-
-    lic["expiry"] = new_date.strftime("%Y-%m-%d")
-    lic["status"] = "active"
-
-    save(DB_FILE, db)
-
-    return jsonify({"renewed": True})
-
-# ================= ALL =================
-
-@app.route("/all")
-def all():
-    return jsonify(load(DB_FILE))
+@app.route("/admins")
+def admins():
+    return jsonify(load(ADMINS_FILE))
 
 # ================= START =================
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+app.run(host="0.0.0.0", port=10000)
